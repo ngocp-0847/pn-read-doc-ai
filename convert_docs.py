@@ -13,12 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Set
 import logging
+from docling.document_converter import DocumentConverter
 
-try:
-    from docling.document_converter import DocumentConverter
-except ImportError:
-    print("❌ Lỗi: Docling chưa được cài đặt. Vui lòng chạy: pip install docling")
-    sys.exit(1)
 
 # Thiết lập logging
 logging.basicConfig(

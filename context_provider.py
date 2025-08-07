@@ -9,6 +9,7 @@ import uuid
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
+from dotenv import load_dotenv
 
 from dsrag.knowledge_base import KnowledgeBase
 from dsrag.database.vector import BasicVectorDB
@@ -21,16 +22,22 @@ from atomic_agents.context import BaseDynamicContextProvider
 
 from config.estimate import ESTConfig
 
+# Load environment variables from .env file
+load_dotenv()
+
 
 class ProjectEstimateContextProvider(BaseDynamicContextProvider):
     """Context provider cho project estimation sử dụng dsRAG với Qdrant"""
     
     def __init__(self, 
-                 openai_api_key: str,
+                 openai_api_key: str = None,
                  storage_directory: str = "./dsrag_storage",
                  collection_name: str = "project_estimates"):
         super().__init__(title="Project Estimation Context")
-        self.openai_api_key = openai_api_key
+        # Load API key from environment if not provided
+        self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+        if not self.openai_api_key:
+            raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass it as parameter.")
         self.storage_directory = storage_directory
         self.collection_name = collection_name
         
@@ -47,14 +54,12 @@ class ProjectEstimateContextProvider(BaseDynamicContextProvider):
         
         # Initialize components
         embedding = OpenAIEmbedding(
-            api_key=self.openai_api_key,
             model="text-embedding-3-small"
         )
         
         reranker = CohereReranker()  # Sử dụng CohereReranker thay vì NoReranker
         
         llm = OpenAIChatAPI(
-            api_key=self.openai_api_key,
             model="gpt-4o-mini"
         )
         
@@ -241,8 +246,8 @@ class ProjectEstimateContextProvider(BaseDynamicContextProvider):
         
         # Add guidelines to knowledge base
         self.knowledge_base.add_document(
-            content=guidelines_content,
-            title="Software Development Estimation Guidelines",
+            text=guidelines_content,
+            document_title="Software Development Estimation Guidelines",
             doc_id="estimation_guidelines"
         )
     
@@ -357,7 +362,7 @@ ESTIMATION CONTEXT - Guidelines for Project Estimation:
 class EstimationContextManager:
     """Manager cho estimation context sử dụng dsRAG"""
     
-    def __init__(self, openai_api_key: str):
+    def __init__(self, openai_api_key: str = None):
         self.context_provider = ProjectEstimateContextProvider(openai_api_key)
     
     def get_context_for_documents(self, documents: List[str], project_name: str) -> str:

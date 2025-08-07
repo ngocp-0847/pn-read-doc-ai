@@ -15,6 +15,10 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from atomic_agents import AtomicAgent, AgentConfig
 import instructor
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import config
 from config.estimate import ESTConfig, SYSTEM_PROMPT_CONFIG, EXCEL_CONFIG
@@ -85,7 +89,7 @@ def read_markdown_files(folder_path: str) -> List[str]:
     return documents
 
 
-def create_analysis_agent(openai_api_key: str, context_manager: EstimationContextManager = None) -> AtomicAgent:
+def create_analysis_agent(openai_api_key: str, context_manager: EstimationContextManager = None):
     """Tạo agent để phân tích tài liệu với context provider"""
     client = instructor.from_openai(openai.OpenAI(api_key=openai_api_key))
     
@@ -100,25 +104,18 @@ Nhiệm vụ của bạn:
 Yêu cầu output:
 {chr(10).join(f"- {instruction}" for instruction in SYSTEM_PROMPT_CONFIG['output_instructions'])}
 
-IMPORTANT: Sử dụng thông tin từ context provider để đưa ra ước tính chính xác hơn dựa trên các dự án tương tự."""
-    
-    # Sử dụng cấu hình OpenAI với greedy mode
-    openai_config = ESTConfig.get_openai_config()
-    
-    # Tạo agent config với context provider
-    agent_config = AgentConfig(
-        client=client,
-        model=openai_config["model"],
-        system_prompt=system_prompt,
-        temperature=0.1,  # Low temperature for more consistent results
-        max_tokens=4000   # Higher token limit for detailed analysis
-    )
-    
-    # Add context provider if available
+QUAN TRỌNG: 
+- Bạn PHẢI cung cấp đầy đủ tất cả các trường trong response, bao gồm cả trường 'summary' trong ProjectAnalysis
+- Trường 'summary' phải chứa tóm tắt ngắn gọn về dự án và kết quả phân tích
+- Sử dụng thông tin từ context provider để đưa ra ước tính chính xác"""
+
+    # Add context information if available
     if context_manager:
-        agent_config.context_providers = [context_manager.context_provider]
+        context_info = context_manager.context_provider.get_info()
+        system_prompt += f"\n\nESTIMATION GUIDELINES:\n{context_info}"
     
-    return AtomicAgent[DocumentAnalysisInput, DocumentAnalysisOutput](config=agent_config)
+    # Return both client and system prompt
+    return client, system_prompt
 
 
 def validate_task_hours(analysis: ProjectAnalysis) -> List[str]:
@@ -134,6 +131,38 @@ def validate_task_hours(analysis: ProjectAnalysis) -> List[str]:
                 )
     
     return warnings
+
+
+def create_default_analysis(project_name: str, documents: List[str]) -> ProjectAnalysis:
+    """Tạo phân tích mặc định khi AI không thể phân tích được"""
+    # Create a simple default analysis
+    default_task = Task(
+        task_id="TASK_001",
+        task_name="Phân tích và phát triển dự án",
+        description="Phát triển dự án dựa trên tài liệu được cung cấp",
+        complexity="Medium",
+        estimated_hours=8.0,
+        dependencies=[],
+        priority="High",
+        skills_required=["General Development"]
+    )
+    
+    parent_task = ParentTask(
+        parent_id="PARENT_001",
+        parent_name="Phát triển dự án chính",
+        description="Phát triển các tính năng chính của dự án",
+        total_estimated_hours=8.0,
+        children_tasks=[default_task]
+    )
+    
+    return ProjectAnalysis(
+        project_name=project_name,
+        total_estimated_hours=8.0,
+        parent_tasks=[parent_task],
+        summary=f"Phân tích dự án {project_name} - ước tính cơ bản do AI không thể phân tích chi tiết",
+        assumptions=["Cần phân tích thêm để có ước tính chính xác"],
+        risks=["Ước tính có thể không chính xác do thiếu thông tin chi tiết"]
+    )
 
 
 def export_to_excel(analysis: ProjectAnalysis, output_file: str):
@@ -243,7 +272,7 @@ def analyze_project(folder: str, output: str, project_name: str, openai_key: str
     
     # Tạo agent phân tích với context provider
     click.echo("🤖 Đang tạo AI agent với RAG context...")
-    agent = create_analysis_agent(openai_key, context_manager)
+    client, system_prompt = create_analysis_agent(openai_key, context_manager)
     
     if greedy_mode:
         click.echo("🎯 Greedy mode đã được kích hoạt - ước tính chi tiết hơn")
@@ -254,12 +283,53 @@ def analyze_project(folder: str, output: str, project_name: str, openai_key: str
         project_name=project_name
     )
     
+    # Add context information to documents if available
+    if context_manager:
+        context_info = context_manager.get_context_for_documents(documents, project_name)
+        # Add context as an additional document
+        input_data.documents.append(f"CONTEXT INFORMATION:\n{context_info}")
+    
     # Chạy phân tích
     click.echo("🔍 Đang phân tích tài liệu và ước tính thời gian...")
+    analysis = None
+    
     try:
-        result = agent.run(input_data)
+        # Use instructor client directly
+        result = client.chat.completions.create(
+            model=ESTConfig.DEFAULT_MODEL,
+            response_model=DocumentAnalysisOutput,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Phân tích các tài liệu sau và ước tính thời gian thực hiện dự án '{input_data.project_name}':\n\n" + "\n\n".join(input_data.documents)}
+            ],
+            temperature=0.1,
+            max_tokens=4000
+        )
         analysis = result.analysis
         
+        # Validate that analysis has all required fields
+        if not hasattr(analysis, 'summary') or not analysis.summary:
+            # Generate a default summary if missing
+            analysis.summary = f"Phân tích dự án {analysis.project_name} với tổng thời gian ước tính {analysis.total_estimated_hours:.1f} giờ, bao gồm {len(analysis.parent_tasks)} parent tasks và {sum(len(parent.children_tasks) for parent in analysis.parent_tasks)} children tasks."
+        
+    except Exception as e:
+        click.echo(f"❌ Lỗi trong quá trình phân tích: {e}")
+        # Provide more detailed error information for debugging
+        if "validation error" in str(e).lower():
+            click.echo("💡 Gợi ý: Lỗi validation có thể do AI không cung cấp đầy đủ các trường bắt buộc.")
+            click.echo("   Đang tạo phân tích mặc định...")
+        elif "api" in str(e).lower():
+            click.echo("💡 Gợi ý: Kiểm tra OpenAI API key và kết nối mạng.")
+            click.echo("   Đang tạo phân tích mặc định...")
+        else:
+            click.echo("💡 Gợi ý: Kiểm tra lại tài liệu đầu vào và thử chạy lại.")
+            click.echo("   Đang tạo phân tích mặc định...")
+        
+        # Create default analysis as fallback
+        analysis = create_default_analysis(project_name, documents)
+    
+    # Display results
+    if analysis:
         # Hiển thị kết quả tóm tắt
         click.echo(f"\n📊 KẾT QUẢ PHÂN TÍCH:")
         click.echo(f"Tên dự án: {analysis.project_name}")
@@ -286,9 +356,8 @@ def analyze_project(folder: str, output: str, project_name: str, openai_key: str
         export_to_excel(analysis, output)
         
         click.echo(f"\n✅ Hoàn thành! Kết quả đã được lưu vào: {output}")
-        
-    except Exception as e:
-        click.echo(f"❌ Lỗi trong quá trình phân tích: {e}")
+    else:
+        click.echo("❌ Không thể tạo phân tích dự án.")
 
 
 if __name__ == '__main__':

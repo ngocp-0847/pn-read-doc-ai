@@ -11,6 +11,10 @@ import openai
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import dsRAG components
 from dsrag.knowledge_base import KnowledgeBase
@@ -129,8 +133,8 @@ def test_knowledge_base(knowledge_base: KnowledgeBase, test_query: str = "softwa
             rse_params={
                 "max_length": 5,
                 "overall_max_length": 10,
-                "minimum_value": 0.7,
-                "irrelevant_chunk_penalty": 0.3
+                "minimum_value": 0.1,
+                # "irrelevant_chunk_penalty": 0.3
             }
         )
         
@@ -251,9 +255,9 @@ def search_documents(openai_key: str, storage_dir: str, query: str, max_results:
             search_queries=[query],
             rse_params={
                 "max_length": max_results,
-                "overall_max_length": max_results * 2,
-                "minimum_value": 0.7,
-                "irrelevant_chunk_penalty": 0.3
+                # "overall_max_length": max_results * 2,
+                # "minimum_value": 0.7,
+                # "irrelevant_chunk_penalty": 0.3
             }
         )
         print("results", query, results)
