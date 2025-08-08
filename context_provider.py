@@ -4,6 +4,8 @@ Context Provider cho EST CLI sử dụng dsRAG với Qdrant
 """
 
 import os
+import logging
+import time
 import json
 import uuid
 from typing import List, Dict, Any, Optional
@@ -25,6 +27,18 @@ from config.estimate import ESTConfig
 # Load environment variables from .env file
 load_dotenv()
 
+# Configure logger
+LOGGER_NAME = "est.context"
+logger = logging.getLogger(LOGGER_NAME)
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s")
+    _handler.setFormatter(_formatter)
+    logger.addHandler(_handler)
+
+_debug_enabled = str(os.getenv("EST_DEBUG", "")).lower() in {"1", "true", "yes", "on"}
+logger.setLevel(logging.DEBUG if _debug_enabled else logging.INFO)
+
 
 class ProjectEstimateContextProvider(BaseDynamicContextProvider):
     """Context provider cho project estimation sử dụng dsRAG với Qdrant"""
@@ -34,34 +48,42 @@ class ProjectEstimateContextProvider(BaseDynamicContextProvider):
                  storage_directory: str = "./dsrag_storage",
                  collection_name: str = "project_estimates"):
         super().__init__(title="Project Estimation Context")
+        logger.info("Initializing ProjectEstimateContextProvider")
         # Load API key from environment if not provided
         self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
             raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass it as parameter.")
         self.storage_directory = storage_directory
         self.collection_name = collection_name
+        logger.debug("Config: storage_directory=%s, collection_name=%s", self.storage_directory, self.collection_name)
         
         # Initialize dsRAG KnowledgeBase
         self.knowledge_base = self._init_knowledge_base()
+        logger.info("KnowledgeBase initialized: id=%s", self.collection_name)
         
         # Load estimation guidelines
         self._load_estimation_guidelines()
+        logger.info("Estimation guidelines loaded into KnowledgeBase")
     
     def _init_knowledge_base(self) -> KnowledgeBase:
         """Khởi tạo dsRAG KnowledgeBase với các components mặc định"""
         # Create storage directory
+        logger.debug("Ensuring storage directory exists at %s", self.storage_directory)
         os.makedirs(self.storage_directory, exist_ok=True)
         
         # Initialize components
         embedding = OpenAIEmbedding(
             model="text-embedding-3-small"
         )
+        logger.debug("Embedding model initialized: %s", "text-embedding-3-small")
         
         reranker = CohereReranker()  # Sử dụng CohereReranker thay vì NoReranker
+        logger.debug("Reranker initialized: %s", reranker.__class__.__name__)
         
         llm = OpenAIChatAPI(
             model="gpt-4o-mini"
         )
+        logger.debug("Auto-context LLM initialized: %s", "gpt-4o-mini")
         
         # Create KnowledgeBase với API mới
         knowledge_base = KnowledgeBase(
@@ -74,11 +96,14 @@ class ProjectEstimateContextProvider(BaseDynamicContextProvider):
             auto_context_model=llm,
             exists_ok=True
         )
+        logger.debug("KnowledgeBase created with id=%s at %s", self.collection_name, self.storage_directory)
         
         return knowledge_base
     
     def _load_estimation_guidelines(self):
         """Load estimation guidelines vào knowledge base"""
+        logger.debug("Loading estimation guidelines into KnowledgeBase")
+        _t0 = time.time()
         guidelines_content = """
 # Software Development Estimation Guidelines
 
@@ -250,9 +275,12 @@ class ProjectEstimateContextProvider(BaseDynamicContextProvider):
             document_title="Software Development Estimation Guidelines",
             doc_id="estimation_guidelines"
         )
+        logger.debug("Guidelines added: chars=%d, elapsed_ms=%.1f", len(guidelines_content), (time.time() - _t0) * 1000)
     
     def add_markdown_documents(self, documents: List[str], project_name: str):
         """Thêm markdown documents vào knowledge base"""
+        logger.info("Adding %d markdown documents for project '%s'", len(documents), project_name)
+        _t0 = time.time()
         for i, doc_content in enumerate(documents):
             doc_id = f"{project_name}_doc_{i}"
             title = f"Project Document {i+1} - {project_name}"
@@ -267,11 +295,15 @@ class ProjectEstimateContextProvider(BaseDynamicContextProvider):
                     'index': i
                 }
             )
+            logger.debug("Document added: id=%s, title=%s, chars=%d", doc_id, title, len(doc_content))
+        logger.info("Completed adding documents: elapsed_ms=%.1f", (time.time() - _t0) * 1000)
     
     def get_context_for_project(self, project_description: str, documents: List[str] = None) -> str:
         """Get context for project estimation using RAG"""
         # Add project documents if provided
+        logger.info("Preparing RAG context for project. Has documents=%s", bool(documents))
         if documents:
+            logger.debug("Adding %d documents to KnowledgeBase before query", len(documents))
             self.add_markdown_documents(documents, "current_project")
         
         # Query the knowledge base for relevant information
@@ -287,23 +319,28 @@ class ProjectEstimateContextProvider(BaseDynamicContextProvider):
         
         Focus on providing practical, actionable estimation guidance.
         """
+        logger.debug("Constructed RAG query: chars=%d", len(query))
         
         # Perform RAG query
         try:
+            _t0 = time.time()
             results = self.knowledge_base.query(
                 search_queries=[query],
                 rse_params={
                     "max_length": 10,
-                    "overall_max_length": 20,
-                    "minimum_value": 0.7,
-                    "irrelevant_chunk_penalty": 0.3
+                    # "overall_max_length": 20,
+                    # "minimum_value": 0.7,
+                    # "irrelevant_chunk_penalty": 0.3
                 }
             )
+            elapsed_ms = (time.time() - _t0) * 1000
+            logger.info("RAG query completed: results=%d, elapsed_ms=%.1f", len(results) if results else 0, elapsed_ms)
             
             # Extract relevant context from results
             context = "ESTIMATION CONTEXT FROM RAG:\n\n"
             
             for i, result in enumerate(results, 1):
+                logger.debug("Result %d: title=%s, relevance=%s, content_chars=%d", i, result.get('title', 'Unknown'), result.get('relevance', 0), len(result.get('content', '') or ''))
                 context += f"RELEVANT INFORMATION {i}:\n"
                 context += f"Source: {result.get('title', 'Unknown')}\n"
                 context += f"Relevance: {result.get('relevance', 0):.3f}\n"
@@ -313,8 +350,10 @@ class ProjectEstimateContextProvider(BaseDynamicContextProvider):
             return context
             
         except Exception as e:
+            print("e: ", e)
+            logger.exception("RAG query failed. Falling back to general guidelines")
             # Fallback to general guidelines
-            return self.get_info()
+            return False
     
     def get_info(self) -> str:
         """Get general context information"""
@@ -376,23 +415,3 @@ class EstimationContextManager:
         # Get context from provider using RAG
         return self.context_provider.get_context_for_project(project_description, documents)
     
-    def add_custom_estimate(self, project_data: Dict[str, Any]):
-        """Add custom project estimate to the knowledge base"""
-        # Convert project data to document format
-        doc_content = f"""
-Project: {project_data['project_name']}
-Description: {project_data['description']}
-Total Hours: {project_data['total_hours']}
-Technologies: {', '.join(project_data['technologies'])}
-Team Size: {project_data['team_size']}
-Duration: {project_data['duration_weeks']} weeks
-
-Parent Tasks:
-{chr(10).join(f"- {task['name']}: {task['description']} ({task['hours']}h, {task['complexity']})" for task in project_data['parent_tasks'])}
-        """.strip()
-        
-        self.context_provider.knowledge_base.add_document(
-            content=doc_content,
-            title=f"Project Estimate - {project_data['project_name']}",
-            doc_id=f"estimate_{project_data['project_name'].lower().replace(' ', '_')}"
-        ) 

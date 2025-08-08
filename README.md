@@ -6,6 +6,32 @@ Dự án này bao gồm ba công cụ chính:
 2. **EST CLI** - Estimation Tool cho ước tính thời gian phát triển phần mềm
 3. **Index CLI** - dsRAG Indexing Tool cho tìm kiếm và quản lý knowledge base
 
+## 📋 Requirements
+
+### System Requirements
+- Python 3.8 or higher
+- pip package manager
+- Virtual environment (recommended)
+
+### Python Dependencies
+```
+docling>=2.43.0          # Document processing
+pandas>=1.5.0            # Data manipulation
+openpyxl>=3.0.0          # Excel output
+xlrd>=2.0.0              # Excel reading
+atomic-agents>=2.0.0     # AI agents framework
+openai>=1.0.0            # OpenAI API
+instructor>=1.0.0        # Structured output
+pydantic>=2.0.0          # Data validation
+click>=8.0.0             # CLI framework
+qdrant-client>=1.7.0     # Vector database
+sentence-transformers>=2.2.0  # Text embeddings
+numpy>=1.21.0            # Numerical computing
+dsrag>=0.1.0             # dsRAG framework
+python-dotenv>=1.0.0     # Environment variables
+google-generativeai>=0.3.0  # Google AI (required by dsrag)
+```
+
 ## 🚀 Tính năng chính
 
 ### Document Converter CLI
@@ -30,16 +56,62 @@ Dự án này bao gồm ba công cụ chính:
 
 ## 📦 Cài đặt
 
+### Bước 1: Clone Repository
 ```bash
 # Clone repository
 git clone <repository-url>
 cd est-khobai
+```
+
+### Bước 2: Setup Virtual Environment (Khuyến nghị)
+```bash
+# Tạo virtual environment
+python3 -m venv .venv
+
+# Kích hoạt virtual environment
+# Trên macOS/Linux:
+source .venv/bin/activate
+# Trên Windows:
+# .venv\Scripts\activate
+```
+
+### Bước 3: Cài đặt Dependencies
+```bash
+# Upgrade pip
+pip install --upgrade pip
 
 # Cài đặt dependencies
 pip install -r requirements.txt
+```
 
+### Bước 4: Thiết lập Environment Variables
+```bash
 # Thiết lập OpenAI API Key (cho EST CLI và Index CLI)
 export OPENAI_API_KEY="your-openai-api-key-here"
+```
+
+## 🔧 Environment Variables
+
+Dự án hỗ trợ loading environment variables từ file `.env`. Tạo file `.env` trong thư mục gốc của dự án:
+
+```bash
+# Copy file mẫu
+cp .env.example .env
+
+# Chỉnh sửa file .env với API keys của bạn
+nano .env
+```
+
+### Các biến môi trường được hỗ trợ:
+
+- `OPENAI_API_KEY`: OpenAI API Key (bắt buộc cho EST CLI và Index CLI)
+- `COHERE_API_KEY`: Cohere API Key (cho reranker trong dsRAG)
+- `DEFAULT_PROJECT_NAME`: Tên dự án mặc định
+- `DEFAULT_OUTPUT_FILE`: Tên file output mặc định
+- `DSRAG_STORAGE_DIR`: Thư mục lưu trữ dsRAG
+- `LOG_LEVEL`: Mức độ logging (INFO, DEBUG, etc.)
+
+**Lưu ý**: File `.env` đã được thêm vào `.gitignore` để bảo mật thông tin API keys.
 ```
 
 ## 🛠️ Sử dụng
@@ -68,6 +140,37 @@ python3 est_cli.py --folder markdown_files --output "analysis.xlsx"
 
 # Sử dụng OpenAI key trực tiếp
 python3 est_cli.py --folder markdown_files --openai-key "sk-..."
+
+# Sử dụng semantic search
+python3 est_cli.py --folder markdown_files --use-semantic-search
+
+# Demo với script tự động
+python3 demo_est_cli.py
+```
+
+#### Sử dụng Makefile cho EST CLI
+
+```bash
+# Setup environment
+make est-setup
+
+# Test với demo data
+make est-test
+
+# Demo với markdown_files
+make est-demo
+
+# Demo tự động với script
+make est-demo-script
+
+# Phân tích dự án tùy chỉnh
+make est-analyze FOLDER=markdown_files PROJECT="MyProject"
+
+# Hiển thị help
+make est-help
+
+# Xóa output files
+make est-clean
 ```
 
 ### Index CLI
@@ -301,6 +404,56 @@ make est-test
 python3 index_cli.py index --folder markdown_files --test-query "test"
 ```
 
+## 🔧 Troubleshooting
+
+### Common Issues
+
+#### 1. ModuleNotFoundError: No module named 'google.generativeai'
+```bash
+# Giải pháp: Cài đặt google-generativeai
+pip install google-generativeai>=0.3.0
+```
+
+#### 2. OpenAI API Key Issues
+```bash
+# Kiểm tra API key
+echo $OPENAI_API_KEY
+
+# Thiết lập lại API key
+export OPENAI_API_KEY="your-actual-api-key"
+```
+
+#### 3. Virtual Environment Issues
+```bash
+# Tạo lại virtual environment
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+#### 4. dsRAG Storage Issues
+```bash
+# Xóa storage cũ và tạo lại
+rm -rf dsrag_storage/
+python3 index_cli.py index --folder markdown_files --project-name "test"
+```
+
+### Verification Commands
+```bash
+# Kiểm tra Python version
+python3 --version
+
+# Kiểm tra pip packages
+pip list
+
+# Kiểm tra virtual environment
+which python
+
+# Test OpenAI connection
+python3 -c "import openai; print('OpenAI package installed')"
+```
+
 ## 📝 Dependencies
 
 ### Core Dependencies
@@ -316,36 +469,3 @@ python3 index_cli.py index --folder markdown_files --test-query "test"
 - `dsrag>=1.0.0` - dsRAG framework
 - `qdrant-client>=1.0.0` - Vector database
 - `cohere>=4.0.0` - Reranking
-
-## 🤝 Contributing
-
-1. Fork repository
-2. Tạo feature branch
-3. Commit changes
-4. Push to branch
-5. Tạo Pull Request
-
-## 📄 License
-
-MIT License - Xem file LICENSE để biết thêm chi tiết.
-
-## 🆘 Support
-
-Nếu gặp vấn đề, vui lòng:
-1. Kiểm tra documentation
-2. Chạy test suite
-3. Tạo issue với thông tin chi tiết
-
-## 🔄 Changelog
-
-### v1.1.0
-- Thêm Index CLI với dsRAG integration
-- Thêm tính năng search semantic
-- Thêm tính năng list-docs
-- Tích hợp với EST CLI để cải thiện ước tính
-
-### v1.0.0
-- Thêm Document Converter CLI
-- Thêm EST CLI với AI estimation
-- Hỗ trợ Excel output
-- Tích hợp Makefile commands 
