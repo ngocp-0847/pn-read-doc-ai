@@ -11,7 +11,7 @@ import time
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import List, Set
+from typing import List, Set, Union, Optional
 import logging
 from docling.document_converter import DocumentConverter
 
@@ -61,19 +61,43 @@ def should_ignore_path(path: Path) -> bool:
     
     return False
 
-def find_supported_files(directory: Path) -> List[Path]:
+def find_supported_files(input_paths: List[Union[str, Path]]) -> List[Path]:
     """
-    Tìm tất cả các file được hỗ trợ trong thư mục và các thư mục con
+    Tìm tất cả các file được hỗ trợ từ danh sách input paths
+    Hỗ trợ cả file đơn lẻ và thư mục
     """
     supported_files = []
     
-    for file_path in directory.rglob('*'):
-        # Bỏ qua các file/thư mục không mong muốn
-        if should_ignore_path(file_path):
+    for input_path_str in input_paths:
+        input_path = Path(input_path_str)
+        
+        if not input_path.exists():
+            logger.warning(f"⚠️ Đường dẫn không tồn tại: {input_path}")
             continue
-            
-        if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
-            supported_files.append(file_path)
+        
+        if input_path.is_file():
+            # Nếu là file đơn lẻ
+            if input_path.suffix.lower() in SUPPORTED_EXTENSIONS:
+                supported_files.append(input_path)
+                logger.info(f"📄 Thêm file: {input_path}")
+            else:
+                logger.warning(f"⚠️ File không được hỗ trợ: {input_path}")
+                logger.info(f"   Các định dạng được hỗ trợ: {', '.join(SUPPORTED_EXTENSIONS)}")
+        
+        elif input_path.is_dir():
+            # Nếu là thư mục, tìm tất cả file được hỗ trợ
+            logger.info(f"📁 Quét thư mục: {input_path}")
+            for file_path in input_path.rglob('*'):
+                # Bỏ qua các file/thư mục không mong muốn
+                if should_ignore_path(file_path):
+                    continue
+                    
+                if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
+                    supported_files.append(file_path)
+                    logger.info(f"  📄 Tìm thấy: {file_path}")
+        
+        else:
+            logger.warning(f"⚠️ Đường dẫn không phải file hoặc thư mục: {input_path}")
     
     return supported_files
 
@@ -149,7 +173,7 @@ def convert_xls_to_xlsx(file_path: Path) -> Path:
         logger.error(f"❌ Lỗi khi chuyển đổi .xls: {str(e)}")
         return None
 
-def convert_file_to_markdown(file_path: Path, output_dir: Path, converter: DocumentConverter) -> bool:
+def convert_file_to_markdown(file_path: Path, output_dir: Path, converter: DocumentConverter, max_pages: Optional[int] = None) -> bool:
     """
     Chuyển đổi một file thành Markdown với retry logic
     """
@@ -173,8 +197,13 @@ def convert_file_to_markdown(file_path: Path, output_dir: Path, converter: Docum
         try:
             logger.info(f"🔄 Đang chuyển đổi: {original_file_path} (lần thử {attempt + 1}/{max_retries})")
             
-            # Chuyển đổi file
-            result = converter.convert(str(file_path))
+            # Chuyển đổi file với giới hạn số trang nếu được chỉ định
+            if max_pages and file_path.suffix.lower() == '.pdf':
+                logger.info(f"📄 Giới hạn chuyển đổi {max_pages} trang đầu tiên")
+                # Sử dụng cấu hình đặc biệt cho PDF với giới hạn trang
+                result = converter.convert(str(file_path), max_num_pages=max_pages)
+            else:
+                result = converter.convert(str(file_path))
             
             # Tạo tên file output
             output_filename = original_file_path.stem + '.md'
@@ -231,22 +260,50 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ví dụ sử dụng:
+  # Chuyển đổi một file
+  python convert_docs.py document.pdf
+  
+  # Chuyển đổi nhiều file
+  python convert_docs.py file1.pdf file2.xlsx file3.xlsm
+  
+  # Chuyển đổi một thư mục
   python convert_docs.py /path/to/input/folder
-  python convert_docs.py /path/to/input/folder --output /path/to/output
-  python convert_docs.py /path/to/input/folder --verbose
+  
+  # Chuyển đổi kết hợp file và thư mục
+  python convert_docs.py file1.pdf /path/to/folder file2.xlsx
+  
+  # Chỉ định thư mục output
+  python convert_docs.py file1.pdf --output /path/to/output
+  
+  # Giới hạn số trang cho file PDF
+  python convert_docs.py document.pdf --max-page 10
+  
+  # Chế độ verbose
+  python convert_docs.py file1.pdf --verbose
+  
+  # Dry run để xem trước
+  python convert_docs.py file1.pdf --dry-run
         """
     )
     
     parser.add_argument(
-        'input_folder',
+        'input_paths',
+        nargs='+',
         type=str,
-        help='Thư mục chứa các file cần chuyển đổi'
+        help='File hoặc thư mục cần chuyển đổi (có thể chỉ định nhiều)'
     )
     
     parser.add_argument(
         '--output', '-o',
         type=str,
         help='Thư mục output (mặc định: ./markdown_output)'
+    )
+    
+    parser.add_argument(
+        '--max-page',
+        type=int,
+        metavar='N',
+        help='Giới hạn số trang đầu tiên cần chuyển đổi (chỉ áp dụng cho file PDF)'
     )
     
     parser.add_argument(
@@ -269,23 +326,21 @@ Ví dụ sử dụng:
     
     args = parser.parse_args()
     
+    # Kiểm tra giá trị max_page
+    if args.max_page is not None and args.max_page <= 0:
+        logger.error("❌ Giá trị --max-page phải lớn hơn 0")
+        sys.exit(1)
+    
     # Thiết lập logging level
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
-    # Kiểm tra thư mục input
-    input_path = Path(args.input_folder)
-    if not input_path.exists():
-        logger.error(f"❌ Thư mục không tồn tại: {input_path}")
-        sys.exit(1)
-    
-    if not input_path.is_dir():
-        logger.error(f"❌ Đường dẫn không phải là thư mục: {input_path}")
-        sys.exit(1)
-    
     # Tìm các file được hỗ trợ
-    logger.info(f"🔍 Đang tìm kiếm các file trong: {input_path}")
-    supported_files = find_supported_files(input_path)
+    logger.info(f"🔍 Đang tìm kiếm các file từ {len(args.input_paths)} input path(s):")
+    for path in args.input_paths:
+        logger.info(f"  - {path}")
+    
+    supported_files = find_supported_files(args.input_paths)
     
     if not supported_files:
         logger.warning("⚠️ Không tìm thấy file nào được hỗ trợ")
@@ -295,6 +350,10 @@ Ví dụ sử dụng:
     logger.info(f"📁 Tìm thấy {len(supported_files)} file được hỗ trợ:")
     for file_path in supported_files:
         logger.info(f"  - {file_path}")
+    
+    # Hiển thị thông tin về giới hạn trang nếu được chỉ định
+    if args.max_page:
+        logger.info(f"📄 Giới hạn chuyển đổi: {args.max_page} trang đầu tiên (chỉ áp dụng cho file PDF)")
     
     if args.dry_run:
         logger.info("🔍 Chế độ dry-run: Chỉ hiển thị danh sách file")
@@ -330,7 +389,7 @@ Ví dụ sử dụng:
     total_count = len(files_to_convert)
     
     for file_path in files_to_convert:
-        if convert_file_to_markdown(file_path, output_dir, converter):
+        if convert_file_to_markdown(file_path, output_dir, converter, args.max_page):
             success_count += 1
     
     # Tổng kết
@@ -340,6 +399,8 @@ Ví dụ sử dụng:
     logger.info(f"  - Chuyển đổi thành công: {success_count}")
     logger.info(f"  - Thất bại: {total_count - success_count}")
     logger.info(f"  - Thư mục output: {output_dir.absolute()}")
+    if args.max_page:
+        logger.info(f"  - Giới hạn trang: {args.max_page} trang đầu tiên (chỉ PDF)")
     
     if success_count == total_count:
         logger.info("🎉 Tất cả file đã được chuyển đổi thành công!")

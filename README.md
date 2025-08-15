@@ -2,7 +2,7 @@
 
 Dự án này bao gồm ba công cụ chính:
 
-1. **Document Converter CLI** - Chuyển đổi tài liệu sang markdown
+1. **Document Converter CLI** - Chuyển đổi tài liệu (file hoặc folder) sang markdown
 2. **EST CLI** - Estimation Tool cho ước tính thời gian phát triển phần mềm
 3. **Index CLI** - dsRAG Indexing Tool cho tìm kiếm và quản lý knowledge base
 
@@ -36,9 +36,11 @@ google-generativeai>=0.3.0  # Google AI (required by dsrag)
 
 ### Document Converter CLI
 - Chuyển đổi các file PDF, Word, Excel sang markdown
-- Hỗ trợ nhiều định dạng đầu vào
+- Hỗ trợ cả file đơn lẻ và thư mục
+- Có thể chỉ định nhiều input paths cùng lúc
 - Tự động xử lý batch files
 - Tạo output có cấu trúc
+- Hỗ trợ kết hợp file và thư mục trong một lệnh
 
 ### EST CLI (Estimation Tool)
 - Phân tích tài liệu markdown bằng AI
@@ -119,14 +121,26 @@ nano .env
 ### Document Converter CLI
 
 ```bash
-# Chuyển đổi folder
-python3 convert_docs.py /path/to/folder --output ./markdown_files
+# Chuyển đổi một file
+python3 convert_docs.py document.pdf
+
+# Chuyển đổi nhiều file
+python3 convert_docs.py file1.pdf file2.xlsx file3.xlsm
+
+# Chuyển đổi một thư mục
+python3 convert_docs.py /path/to/folder
+
+# Chuyển đổi kết hợp file và thư mục
+python3 convert_docs.py file1.pdf /path/to/folder file2.xlsx
+
+# Chỉ định thư mục output
+python3 convert_docs.py file1.pdf --output ./markdown_files
 
 # Chuyển đổi với force mode
-python3 convert_docs.py /path/to/folder --force-convert
+python3 convert_docs.py file1.pdf --force-convert
 
 # Dry run để xem trước
-python3 convert_docs.py /path/to/folder --dry-run
+python3 convert_docs.py file1.pdf --dry-run
 ```
 
 ### EST CLI
@@ -196,7 +210,8 @@ python3 index_cli.py index --folder markdown_files --test-query "database design
 make install          # Cài đặt dependencies
 make test            # Test script
 make demo            # Chạy demo
-make convert         # Chuyển đổi documents
+make convert         # Chuyển đổi documents (folder)
+make convert-file    # Chuyển đổi file đơn lẻ
 make clean           # Dọn dẹp files
 ```
 
