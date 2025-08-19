@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script CLI để chuyển đổi các file PDF, XLSX, XLSM thành Markdown sử dụng Docling
-Hỗ trợ RAG cho hệ thống LLM
+Hỗ trợ batch processing và xử lý tự động nhiều định dạng file
 """
 
 import argparse
@@ -29,10 +29,9 @@ logger = logging.getLogger(__name__)
 
 # Import cấu hình
 try:
-    from config import (
+    from config.convert_md import (
         SUPPORTED_EXTENSIONS, SPECIAL_FORMATS, LOGGING_CONFIG, OUTPUT_CONFIG,
-        DOCLING_CONFIG, ERROR_HANDLING, PERFORMANCE_CONFIG,
-        RAG_CONFIG, IGNORE_PATTERNS, IGNORE_DIRECTORIES
+        DOCLING_CONFIG, ERROR_HANDLING, IGNORE_PATTERNS, IGNORE_DIRECTORIES
     )
 except ImportError:
     # Fallback nếu không có file config
@@ -41,9 +40,7 @@ except ImportError:
     LOGGING_CONFIG = {'level': 'INFO', 'format': '%(asctime)s - %(levelname)s - %(message)s'}
     OUTPUT_CONFIG = {'default_output_dir': './markdown_output', 'encoding': 'utf-8'}
     DOCLING_CONFIG = {'enable_ocr': True, 'enable_table_extraction': True}
-    ERROR_HANDLING = {'continue_on_error': True, 'max_retries': 3}
-    PERFORMANCE_CONFIG = {'max_workers': 4, 'timeout': 300}
-    RAG_CONFIG = {'include_metadata': True, 'include_tables': True}
+    ERROR_HANDLING = {'continue_on_error': True, 'max_retries': 3, 'retry_delay': 1}
     IGNORE_PATTERNS = ['~$*', '*.tmp', '*.bak']
     IGNORE_DIRECTORIES = ['.git', '__pycache__']
 
@@ -231,13 +228,18 @@ def convert_file_to_markdown(file_path: Path, output_dir: Path, converter: Docum
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Chuyển đổi các file PDF, XLSX, XLSM thành Markdown sử dụng Docling",
+        description="Document Converter CLI - Chuyển đổi các file PDF, Excel thành Markdown sử dụng Docling",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ví dụ sử dụng:
   python convert_docs.py /path/to/input/folder
   python convert_docs.py /path/to/input/folder --output /path/to/output
   python convert_docs.py /path/to/input/folder --verbose
+  python convert_docs.py /path/to/input/folder --dry-run
+  python convert_docs.py /path/to/input/folder --force-convert
+
+Định dạng được hỗ trợ: PDF, XLSX, XLSM, XLS
+Tính năng: OCR, trích xuất bảng, xử lý batch, retry logic
         """
     )
     
